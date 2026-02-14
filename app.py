@@ -2,175 +2,137 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import re
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import classification_report, accuracy_score
-import seaborn as sns
-import matplotlib.pyplot as plt
+from sklearn.preprocessing import StandardScaler
 
-st.set_page_config(page_title="EdTech Engagement Analyzer", layout="wide")
-
+st.set_page_config(page_title="EdTech Student Engagement Dashboard", layout="wide")
 st.title("📊 EdTech Student Engagement & Dropout Predictor")
 
-# ----------------------------
-# Generate Synthetic Dataset
-# ----------------------------
+# -----------------------------
+# Upload or Generate Dataset
+# -----------------------------
+uploaded_file = st.file_uploader("Upload CSV Dataset", type=["csv"])
 
-def generate_dataset(n=1000):
-    np.random.seed(42)
-
-    subjects = ["Data Science", "Mathematics", "Programming", "Business", "AI", "Cyber Security"]
-    
-    data = {
-        "student_id": np.arange(1, n+1),
-        "course_id": np.random.randint(100, 200, n),
-        "subject": np.random.choice(subjects, n),
-        "engagement_hours": np.random.normal(30, 10, n).clip(1),
-        "weekly_logins": np.random.randint(1, 15, n),
-        "assignment_submission_rate": np.random.uniform(0.3, 1.0, n),
-        "assessment_score": np.random.normal(70, 15, n).clip(30, 100),
-    }
-
-    df = pd.DataFrame(data)
-
-    # Create text column for regex extraction
-    df["engagement_text"] = df["engagement_hours"].round(1).astype(str) + " hours"
-
-    # Completion logic
-    df["completion_status"] = np.where(
-        (df["engagement_hours"] > 25) &
-        (df["assignment_submission_rate"] > 0.6) &
-        (df["assessment_score"] > 60),
-        1, 0
-    )
-
-    # Introduce missing values
-    df.loc[df.sample(frac=0.05).index, "engagement_hours"] = np.nan
-    df.loc[df.sample(frac=0.05).index, "assignment_submission_rate"] = np.nan
-
-    return df
-
-
-# Sidebar options
-st.sidebar.header("Options")
-generate_data = st.sidebar.button("Generate Synthetic Dataset (1000 rows)")
-uploaded_file = st.sidebar.file_uploader("Upload CSV Dataset")
-
-# Load dataset
-if generate_data:
-    df = generate_dataset()
-    st.success("Synthetic dataset generated with 1000 rows.")
-elif uploaded_file:
+if uploaded_file:
     df = pd.read_csv(uploaded_file)
     st.success("Dataset uploaded successfully.")
 else:
-    st.info("Please generate or upload a dataset.")
-    st.stop()
+    st.info("No dataset uploaded. Generating synthetic dataset with 1000 rows.")
+
+    n = 1000
+    data = []
+    first_names = ["John", "Emma", "Liam", "Olivia", "Noah", "Ava", "William", "Sophia"]
+    last_names = ["Smith", "Johnson", "Brown", "Taylor", "Anderson", "Thomas"]
+
+    np.random.seed(42)
+    for i in range(1, n+1):
+        engagement_hours = round(np.random.normal(30, 10), 2)
+        assessment_score = round(np.random.normal(70, 15), 2)
+        videos_pct = round(np.random.uniform(40, 100), 2)
+        assignments = np.random.randint(1, 12)
+        quizzes = np.random.randint(1, 10)
+        login_frequency = np.random.randint(5, 50)
+        session_duration = round(np.random.uniform(10, 120), 2)
+        inactivity_days = np.random.randint(0, 30)
+        completion_status = 1 if (engagement_hours + assessment_score/2) > 60 else 0
+        name = random.choice(first_names) + " " + random.choice(last_names)
+
+        row = {
+            "student_id": f"STU_{i:04d}",
+            "course_id": random.choice(["C_DS_01", "C_AI_02", "C_ML_03", "C_WEB_04"]),
+            "student_name": name,
+            "email": f"student{i}@edtech.com",
+            "device_type": random.choice(["Mobile", "Desktop", "Tablet"]),
+            "learning_path_type": random.choice(["Self-Paced", "Instructor-Led"]),
+            "engagement_hours": engagement_hours,
+            "assessment_score_avg": assessment_score,
+            "videos_watched_pct": videos_pct,
+            "assignments_submitted": assignments,
+            "quizzes_attempted": quizzes,
+            "login_frequency": login_frequency,
+            "session_duration_avg": session_duration,
+            "inactivity_gap_days": inactivity_days,
+            "completion_status": completion_status
+        }
+
+        data.append(row)
+
+    df = pd.DataFrame(data)
+
+    # Introduce some missing values
+    for col in ["engagement_hours", "assessment_score_avg"]:
+        df.loc[df.sample(frac=0.02).index, col] = np.nan
 
 st.subheader("Raw Dataset Preview")
 st.dataframe(df.head())
 
-# ----------------------------
+# -----------------------------
+# Ensure Required Columns Exist
+# -----------------------------
+if "assignment_submission_rate" not in df.columns:
+    df["assignment_submission_rate"] = df["assignments_submitted"] / df["assignments_submitted"].max()
+
+if "performance_index" not in df.columns:
+    df["performance_index"] = 0.4*df["assessment_score_avg"] + \
+                              0.3*df["videos_watched_pct"] + \
+                              0.3*df["engagement_hours"]
+
+if "at_risk" not in df.columns:
+    df["at_risk"] = np.where((df["engagement_hours"] < 20) & (df["assessment_score_avg"] < 60), 1, 0)
+
+# -----------------------------
 # Data Cleaning
-# ----------------------------
-
+# -----------------------------
 st.subheader("Data Cleaning")
+df = df.drop_duplicates()
+for col in ["engagement_hours", "assessment_score_avg", "assignment_submission_rate", "performance_index"]:
+    df[col].fillna(df[col].mean(), inplace=True)
 
-# Fill missing values
-df["engagement_hours"].fillna(df["engagement_hours"].mean(), inplace=True)
-df["assignment_submission_rate"].fillna(df["assignment_submission_rate"].mean(), inplace=True)
+st.write("✅ Duplicates removed and missing values handled.")
 
-st.write("Missing values handled using mean imputation.")
+# -----------------------------
+# Regex Processing
+# -----------------------------
+st.subheader("Regex Processing")
+if "email" in df.columns:
+    df["email_domain"] = df["email"].apply(
+        lambda x: re.search(r'@([\w\.]+)', str(x)).group(1) if re.search(r'@([\w\.]+)', str(x)) else None
+    )
+    st.write("✅ Email domain extracted using regex.")
 
-# ----------------------------
-# Regular Expression Feature Extraction
-# ----------------------------
-
-st.subheader("Regex Transformation")
-
-def extract_hours(text):
-    match = re.search(r"(\d+\.?\d*)", str(text))
-    return float(match.group(1)) if match else 0
-
-df["extracted_engagement_hours"] = df["engagement_text"].apply(extract_hours)
-
-st.write("Extracted numeric engagement hours from text column using regex.")
-
-# ----------------------------
-# Feature Engineering
-# ----------------------------
-
-st.subheader("Feature Engineering")
-
-df["engagement_per_login"] = df["engagement_hours"] / df["weekly_logins"]
-df["performance_index"] = (
-    df["assignment_submission_rate"] * 0.4 +
-    df["assessment_score"] * 0.6
-)
-
-# Encode subject
-df = pd.get_dummies(df, columns=["subject"], drop_first=True)
-
-st.write("Created engagement_per_login and performance_index features.")
-
-# ----------------------------
+# -----------------------------
 # Normalization
-# ----------------------------
-
+# -----------------------------
 st.subheader("Normalization")
+numeric_cols = df.select_dtypes(include=np.number).columns
+scaler = StandardScaler()
+df_scaled = df.copy()
+df_scaled[numeric_cols] = scaler.fit_transform(df[numeric_cols])
+st.write("✅ Numeric features normalized.")
 
-numerical_cols = [
-    "engagement_hours",
-    "weekly_logins",
-    "assignment_submission_rate",
-    "assessment_score",
-    "engagement_per_login",
-    "performance_index"
-]
+# -----------------------------
+# Insights
+# -----------------------------
+st.subheader("Key Metrics")
+col1, col2, col3 = st.columns(3)
+col1.metric("Total Students", len(df))
+col2.metric("Completion Rate (%)", round(df["completion_status"].mean()*100, 2))
+col3.metric("At Risk Students", df["at_risk"].sum())
 
-scaler = MinMaxScaler()
-df[numerical_cols] = scaler.fit_transform(df[numerical_cols])
+# -----------------------------
+# Show Processed Dataset
+# -----------------------------
+st.subheader("Processed Dataset (Normalized)")
+st.dataframe(df_scaled.head())
 
-st.write("Numerical features normalized using MinMaxScaler.")
-
-# ----------------------------
-# Modeling
-# ----------------------------
-
-st.subheader("Dropout Prediction Model")
-
-X = df.drop(columns=["student_id", "course_id", "completion_status", "engagement_text"])
-y = df["completion_status"]
-
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.3, random_state=42
+# -----------------------------
+# Download Processed CSV
+# -----------------------------
+csv = df_scaled.to_csv(index=False).encode("utf-8")
+st.download_button(
+    label="Download Processed Dataset",
+    data=csv,
+    file_name="processed_student_data.csv",
+    mime="text/csv"
 )
 
-model = LogisticRegression(max_iter=1000)
-model.fit(X_train, y_train)
-
-y_pred = model.predict(X_test)
-
-accuracy = accuracy_score(y_test, y_pred)
-
-st.write(f"Model Accuracy: {accuracy:.2f}")
-st.text("Classification Report")
-st.text(classification_report(y_test, y_pred))
-
-# ----------------------------
-# Feature Importance
-# ----------------------------
-
-st.subheader("Feature Importance")
-
-importance = pd.DataFrame({
-    "Feature": X.columns,
-    "Importance": model.coef_[0]
-}).sort_values(by="Importance", ascending=False)
-
-fig, ax = plt.subplots(figsize=(8,6))
-sns.barplot(data=importance.head(10), x="Importance", y="Feature", ax=ax)
-st.pyplot(fig)
-
-st.success("Analysis Complete ✅")
+st.success("✅ App is ready!")
