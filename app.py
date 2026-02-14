@@ -1,11 +1,13 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import re
 import random
+import re
+import matplotlib.pyplot as plt
+import seaborn as sns
 from sklearn.preprocessing import StandardScaler
 
-st.set_page_config(page_title="EdTech Student Engagement Dashboard", layout="wide")
+st.set_page_config(page_title="EdTech Engagement Dashboard", layout="wide")
 st.title("📊 EdTech Student Engagement & Dropout Predictor")
 
 # -----------------------------
@@ -59,7 +61,7 @@ else:
 
     df = pd.DataFrame(data)
 
-    # Introduce some missing values
+    # Introduce missing values
     for col in ["engagement_hours", "assessment_score_avg"]:
         df.loc[df.sample(frac=0.02).index, col] = np.nan
 
@@ -67,7 +69,7 @@ st.subheader("Raw Dataset Preview")
 st.dataframe(df.head())
 
 # -----------------------------
-# Ensure Required Columns Exist
+# Ensure required columns
 # -----------------------------
 if "assignment_submission_rate" not in df.columns:
     df["assignment_submission_rate"] = df["assignments_submitted"] / df["assignments_submitted"].max()
@@ -87,7 +89,6 @@ st.subheader("Data Cleaning")
 df = df.drop_duplicates()
 for col in ["engagement_hours", "assessment_score_avg", "assignment_submission_rate", "performance_index"]:
     df[col].fillna(df[col].mean(), inplace=True)
-
 st.write("✅ Duplicates removed and missing values handled.")
 
 # -----------------------------
@@ -111,13 +112,51 @@ df_scaled[numeric_cols] = scaler.fit_transform(df[numeric_cols])
 st.write("✅ Numeric features normalized.")
 
 # -----------------------------
-# Insights
+# Business Metrics / Insights
 # -----------------------------
-st.subheader("Key Metrics")
+st.subheader("Key Metrics & Business Insights")
 col1, col2, col3 = st.columns(3)
 col1.metric("Total Students", len(df))
 col2.metric("Completion Rate (%)", round(df["completion_status"].mean()*100, 2))
 col3.metric("At Risk Students", df["at_risk"].sum())
+
+completion_rate = df["completion_status"].mean()*100
+at_risk_count = df["at_risk"].sum()
+
+st.markdown(f"""
+- **Insight 1:** Completion rate is **{completion_rate:.2f}%**. Low engagement students should be targeted.  
+- **Insight 2:** **{at_risk_count} students** are at risk of dropping out. Consider proactive mentoring or nudges.  
+- **Insight 3:** Higher engagement hours correlate with higher performance (performance index), so promoting video/assignment activity is crucial.
+""")
+
+# -----------------------------
+# Visualizations
+# -----------------------------
+st.subheader("Visualizations")
+
+# Completion vs Course
+fig1, ax1 = plt.subplots()
+sns.countplot(data=df, x="course_id", hue="completion_status", palette="Set2", ax=ax1)
+ax1.set_title("Completion Status by Course")
+st.pyplot(fig1)
+
+# Engagement Distribution
+fig2, ax2 = plt.subplots()
+sns.histplot(df["engagement_hours"], bins=30, kde=True, color="skyblue", ax=ax2)
+ax2.set_title("Distribution of Engagement Hours")
+st.pyplot(fig2)
+
+# Performance Index vs Engagement Hours
+fig3, ax3 = plt.subplots()
+sns.scatterplot(x="engagement_hours", y="performance_index", hue="completion_status", data=df, ax=ax3, palette="Set1")
+ax3.set_title("Engagement Hours vs Performance Index")
+st.pyplot(fig3)
+
+# At-risk Students by Device Type
+fig4, ax4 = plt.subplots()
+sns.countplot(data=df[df["at_risk"]==1], x="device_type", palette="pastel", ax=ax4)
+ax4.set_title("At-Risk Students by Device Type")
+st.pyplot(fig4)
 
 # -----------------------------
 # Show Processed Dataset
@@ -136,4 +175,4 @@ st.download_button(
     mime="text/csv"
 )
 
-st.success("✅ App is ready!")
+st.success("✅ App is ready and fully interactive!")
