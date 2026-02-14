@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import re
+import random
 from sklearn.preprocessing import StandardScaler
 
 st.set_page_config(page_title="EdTech Student Engagement Dashboard", layout="wide")
